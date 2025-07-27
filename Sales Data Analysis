@@ -1,0 +1,207 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+import numpy as np
+import io
+import os
+from datetime import datetime, timedelta
+
+# --- sales_analysis.py ---
+# Goal: Analysis and visualization of fictional sales data,
+# modeled after the Kaggle Superstore dataset.
+
+def generate_superstore_data(num_rows=1000, filename="superstore_sales.csv"):
+    """
+    Generates synthetic sales data resembling the Kaggle Superstore dataset.
+    """
+    print(f"Generating synthetic sales data to '{filename}'...")
+
+    # Define possible values for categorical columns
+    regions = ['Central', 'East', 'South', 'West']
+    categories = ['Technology', 'Office Supplies', 'Furniture']
+    sub_categories = {
+        'Technology': ['Phones', 'Laptops', 'Accessories', 'Copiers'],
+        'Office Supplies': ['Paper', 'Binders', 'Storage', 'Art'],
+        'Furniture': ['Chairs', 'Tables', 'Bookcases']
+    }
+
+    data = []
+    start_date = datetime(2022, 1, 1)
+
+    for i in range(num_rows):
+        order_date = start_date + timedelta(days=np.random.randint(0, 365 * 2)) # 2 years of data
+        ship_date = order_date + timedelta(days=np.random.randint(1, 7))
+        region = np.random.choice(regions)
+        category = np.random.choice(categories)
+        sub_category = np.random.choice(sub_categories[category])
+        sales = np.random.uniform(10, 2000) # Random sales value
+        profit = sales * np.random.uniform(-0.1, 0.3) # Random profit, can be negative
+        quantity = np.random.randint(1, 10)
+        customer_id = f"CUS-{np.random.randint(1000, 9999)}"
+        product_id = f"PRO-{np.random.randint(10000, 99999)}"
+
+        data.append([
+            order_date.strftime('%Y-%m-%d'), ship_date.strftime('%Y-%m-%d'),
+            region, category, sub_category, sales, profit, quantity,
+            customer_id, product_id
+        ])
+
+    # Introduce some missing values and errors for cleaning demonstration
+    for _ in range(num_rows // 20): # ~5% missing values
+        row_idx = np.random.randint(0, num_rows)
+        col_idx = np.random.choice([2, 3, 5, 6]) # Region, Category, Sales, Profit
+        if col_idx == 5: data[row_idx][col_idx] = 'ERROR_VAL' # Simulate bad data
+        elif col_idx == 6: data[row_idx][col_idx] = np.nan # Simulate missing profit
+        else: data[row_idx][col_idx] = np.nan # Simulate other missing values
+
+    df = pd.DataFrame(data, columns=[
+        'Order Date', 'Ship Date', 'Region', 'Category', 'Sub-Category',
+        'Sales', 'Profit', 'Quantity', 'Customer ID', 'Product ID'
+    ])
+
+    df.to_csv(filename, index=False, encoding='utf-8')
+    print(f"Data successfully saved to '{filename}'.")
+    return df
+
+def analyze_sales_data(file_path="superstore_sales.csv"):
+    """
+    Loads, cleans, analyzes, and visualizes sales data.
+    """
+    print("--- Starting Sales Data Analysis ---")
+
+    # Check if the file exists, if not, generate it
+    if not os.path.exists(file_path):
+        print(f"File '{file_path}' not found. Generating data...")
+        df = generate_superstore_data(filename=file_path)
+    else:
+        print(f"Loading data from file '{file_path}'...")
+        try:
+            df = pd.read_csv(file_path, encoding='utf-8')
+            print("Data loaded successfully.")
+        except Exception as e:
+            print(f"An error occurred while loading data: {e}")
+            print("Try deleting the CSV file and running again to generate new data.")
+            return
+
+    print("\n--- Data Preview (first 5 rows) ---")
+    print(df.head())
+    print("\n--- Data Information before Cleaning ---")
+    print(df.info())
+    print("\n--- Missing Values before Cleaning ---")
+    print(df.isnull().sum())
+
+    # --- Data Cleaning ---
+    print("\n### Section 1: Data Cleaning ###")
+
+    # Convert date columns to datetime type
+    df['Order Date'] = pd.to_datetime(df['Order Date'], errors='coerce')
+    df['Ship Date'] = pd.to_datetime(df['Ship Date'], errors='coerce')
+
+    # Handle missing dates (remove rows with missing order dates)
+    initial_rows = len(df)
+    df.dropna(subset=['Order Date'], inplace=True)
+    if len(df) < initial_rows:
+        print(f"Removed {initial_rows - len(df)} rows with missing order dates.")
+    initial_rows = len(df)
+
+    # Convert numeric columns and handle errors
+    # 'Sales' and 'Profit' might have errors or missing values
+    df['Sales'] = pd.to_numeric(df['Sales'], errors='coerce')
+    df['Profit'] = pd.to_numeric(df['Profit'], errors='coerce')
+    df['Quantity'] = pd.to_numeric(df['Quantity'], errors='coerce')
+
+    # Remove rows with missing values in key numeric columns
+    df.dropna(subset=['Sales', 'Profit', 'Quantity'], inplace=True)
+    if len(df) < initial_rows:
+        print(f"Removed {initial_rows - len(df)} rows with missing values in 'Sales', 'Profit', or 'Quantity'.")
+
+    # Fill missing values in categorical columns (if any)
+    # Can fill with mode or 'Unknown'
+    for col in ['Region', 'Category', 'Sub-Category']:
+        if df[col].isnull().any():
+            df[col].fillna('Unknown', inplace=True)
+            print(f"Filled missing values in '{col}' as 'Unknown'.")
+
+    # Remove duplicates
+    initial_rows_before_duplicates = len(df)
+    df.drop_duplicates(inplace=True)
+    if len(df) < initial_rows_before_duplicates:
+        print(f"Removed {initial_rows_before_duplicates - len(df)} duplicate rows.")
+
+    print("\n--- Data Information after Cleaning ---")
+    print(df.info())
+    print("\n--- Missing Values after Cleaning ---")
+    print(df.isnull().sum())
+
+    # --- Data Analysis ---
+    print("\n### Section 2: Data Analysis ###")
+
+    # 1. Total Sales and Profit
+    total_sales = df['Sales'].sum()
+    total_profit = df['Profit'].sum()
+    print(f"\nTotal Sales: ${total_sales:,.2f}")
+    print(f"Total Profit: ${total_profit:,.2f}")
+
+    # 2. Sales and Profit per Region
+    sales_by_region = df.groupby('Region')['Sales'].sum().sort_values(ascending=False)
+    profit_by_region = df.groupby('Region')['Profit'].sum().sort_values(ascending=False)
+    print("\n--- Sales per Region ---")
+    print(sales_by_region)
+    print("\n--- Profit per Region ---")
+    print(profit_by_region)
+
+    # 3. Most Profitable Categories
+    profit_by_category = df.groupby('Category')['Profit'].sum().sort_values(ascending=False)
+    print("\n--- Profit per Category ---")
+    print(profit_by_category)
+
+    # 4. Sales Trends over Time (monthly)
+    df['YearMonth'] = df['Order Date'].dt.to_period('M')
+    monthly_sales = df.groupby('YearMonth')['Sales'].sum()
+    monthly_sales.index = monthly_sales.index.astype(str) # Convert to string for plotting
+    print("\n--- Monthly Sales (first 5 entries) ---")
+    print(monthly_sales.head())
+
+    # --- Data Visualization ---
+    print("\n### Section 3: Data Visualization ###")
+
+    # Plot style settings
+    sns.set_style("whitegrid")
+    plt.rcParams['font.size'] = 10
+    plt.rcParams['figure.figsize'] = (10, 6)
+    plt.rcParams['figure.dpi'] = 100
+
+    # Plot 1: Sales Trends over Time
+    plt.figure(figsize=(14, 7))
+    monthly_sales.plot(kind='line', marker='o', linestyle='-', color='teal')
+    plt.title('Monthly Sales Trends', fontsize=16)
+    plt.xlabel('Month', fontsize=12)
+    plt.ylabel('Sales ($)', fontsize=12)
+    plt.xticks(rotation=45)
+    plt.grid(True)
+    plt.tight_layout()
+    plt.show()
+
+    # Plot 2: Sales per Region
+    plt.figure(figsize=(10, 6))
+    sns.barplot(x=sales_by_region.index, y=sales_by_region.values, palette='viridis')
+    plt.title('Sales per Region', fontsize=16)
+    plt.xlabel('Region', fontsize=12)
+    plt.ylabel('Sales ($)', fontsize=12)
+    plt.tight_layout()
+    plt.show()
+
+    # Plot 3: Profit per Category
+    plt.figure(figsize=(10, 6))
+    sns.barplot(x=profit_by_category.index, y=profit_by_category.values, palette='magma')
+    plt.title('Profit per Product Category', fontsize=16)
+    plt.xlabel('Category', fontsize=12)
+    plt.ylabel('Profit ($)', fontsize=12)
+    plt.tight_layout()
+    plt.show()
+
+    print("\n--- Sales Data Analysis Completed ---")
+
+if __name__ == "__main__":
+    # Run the analysis. If superstore_sales.csv does not exist, it will be generated.
+    analyze_sales_data()
